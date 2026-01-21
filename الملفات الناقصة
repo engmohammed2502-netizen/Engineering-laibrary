@@ -17,3 +17,8 @@ sudo systemctl status mongod
 npm config set registry https://registry.npmmirror.com
 
 npm install -g pm2
+
+
+
+
+sudo npm install -g pm2 --registry=https://registry.npmmirror.com
