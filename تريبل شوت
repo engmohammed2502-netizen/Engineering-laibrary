@@ -1,3 +1,33 @@
+# تأكد من وجود ملف .env
+cd /var/www/engineering-library/server
+
+if [ ! -f ".env" ]; then
+    echo "إنشاء .env..."
+    cat > .env << 'EOF'
+NODE_ENV=production
+PORT=9000
+MONGODB_URI=mongodb://localhost:27017/engineering_library
+JWT_SECRET=engineering-library-secret-2024
+ROOT_PASSWORD=975312468qq
+EOF
+fi
+
+# شغل Backend
+pm2 start server.js --name "engineering-library-api" --watch
+
+# انتظر 5 ثوان
+sleep 5
+
+# اختبر
+curl http://localhost:9000/api/health
+
+
+
+
+
+
+
+
 
 # أولاً: أوقف MongoDB إذا كان يعمل
 sudo systemctl stop mongod 2>/dev/null || true
