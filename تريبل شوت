@@ -1,27 +1,22 @@
-# تأكد من وجود ملف .env
+
+pm2 stop engineering-library-api
+
+
 cd /var/www/engineering-library/server
 
-if [ ! -f ".env" ]; then
-    echo "إنشاء .env..."
-    cat > .env << 'EOF'
-NODE_ENV=production
-PORT=9000
-MONGODB_URI=mongodb://localhost:27017/engineering_library
-JWT_SECRET=engineering-library-secret-2024
-ROOT_PASSWORD=975312468qq
-EOF
-fi
+# حذف المكاتب القديمة لضمان نظافة التثبيت (مثلما فعلنا في الرياكت)
+rm -rf node_modules package-lock.json
 
-# شغل Backend
-pm2 start server.js --name "engineering-library-api" --watch
-
-# انتظر 5 ثوان
-sleep 5
-
-# اختبر
-curl http://localhost:9000/api/health
+# تثبيت المكاتب من جديد
+npm install
 
 
+npm list morgan
+
+
+
+pm2 restart engineering-library-api
+pm2 logs engineering-library-api --lines 50
 
 
 
