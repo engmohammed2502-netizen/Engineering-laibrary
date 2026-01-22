@@ -389,3 +389,789 @@ router.get('/:id', auth, async (req, res) => {
       // ملفات أخرى (للتحميل المباشر)
       if (file.uploadedBy.toString() !== req.user.id && req.user.role !== 'admin' && req.user.role !== 'root') {
         return res.status(403).json({
+          success: false,
+          message: 'ليس لديك صلاحية للوصول لهذا الملف'
+        });
+      }
+    }
+    
+    res.json({
+      success: true,
+      data: {
+        id: file._id,
+        filename: file.filename,
+        originalname: file.originalname,
+        size: file.size,
+        mimetype: file.mimetype,
+        type: file.type,
+        category: file.category,
+        description: file.description,
+        course: file.course,
+        department: file.department,
+        uploadedBy: file.uploadedBy,
+        downloadCount: file.downloadCount,
+        createdAt: file.createdAt,
+        updatedAt: file.updatedAt
+      }
+    });
+  } catch (error) {
+    console.error('Error getting file info:', error);
+    res.status(500).json({
+      success: false,
+      message: 'خطأ في جلب معلومات الملف'
+    });
+  }
+});
+
+/**
+ * @route   GET /api/files/:id/download
+ * @desc    تحميل ملف
+ * @access  Private (حسب صلاحية الملف)
+ */
+router.get('/:id/download', auth, async (req, res) => {
+  try {
+    const file = await File.findById(req.params.id);
+    
+    if (!file) {
+      return res.status(404).json({
+        success: false,
+        message: 'الملف غير موجود'
+      });
+    }
+    
+    // التحقق من صلاحية الوصول
+    if (file.type === 'forum_image' && file.isPublic) {
+      // صور المنتدى العامة يمكن للجمين تحميلها
+    } else if (file.course) {
+      // ملفات المواد تحتاج صلاحية للوصول
+      const course = await Course.findById(file.course);
+      
+      if (!course) {
+        return res.status(404).json({
+          success: false,
+          message: 'المادة غير موجودة'
+        });
+      }
+      
+      // التحقق من صلاحية الوصول للمادة
+      if (req.user.role === 'professor' && course.professorId.toString() !== req.user.id) {
+        return res.status(403).json({
+          success: false,
+          message: 'ليس لديك صلاحية لتحميل هذا الملف'
+        });
+      }
+    } else {
+      // ملفات أخرى (للتحميل المباشر)
+      if (file.uploadedBy.toString() !== req.user.id && req.user.role !== 'admin' && req.user.role !== 'root') {
+        return res.status(403).json({
+          success: false,
+          message: 'ليس لديك صلاحية لتحميل هذا الملف'
+        });
+      }
+    }
+    
+    // التحقق من وجود الملف على السيرفر
+    if (!await fs.pathExists(file.path)) {
+      return res.status(404).json({
+        success: false,
+        message: 'الملف غير موجود على السيرفر'
+      });
+    }
+    
+    // زيادة عداد التنزيلات
+    file.downloadCount += 1;
+    file.lastDownloadedAt = Date.now();
+    await file.save();
+    
+    // تسجيل التنبيه الأمني للتحميلات الكبيرة
+    if (file.size > 50 * 1024 * 1024) { // 50MB
+      await SecurityAlert.create({
+        type: 'file_download',
+        severity: 'low',
+        title: 'تحميل ملف كبير',
+        description: `تم تحميل ملف كبير "${file.originalname}" (${(file.size / (1024 * 1024)).toFixed(2)} MB)`,
+        user: req.user.id,
+        ipAddress: req.ip,
+        userAgent: req.get('User-Agent'),
+        metadata: {
+          fileId: file._id,
+          fileName: file.originalname,
+          fileSize: file.size,
+          downloadCount: file.downloadCount
+        }
+      });
+    }
+    
+    // إرسال الملف
+    res.download(file.path, file.originalname, (err) => {
+      if (err) {
+        console.error('Error downloading file:', err);
+        if (!res.headersSent) {
+          res.status(500).json({
+            success: false,
+            message: 'خطأ في تحميل الملف'
+          });
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Error downloading file:', error);
+    res.status(500).json({
+      success: false,
+      message: 'خطأ في تحميل الملف'
+    });
+  }
+});
+
+/**
+ * @route   GET /api/files/:id/preview
+ * @desc    معاينة ملف (للمستندات والصور)
+ * @access  Private (حسب صلاحية الملف)
+ */
+router.get('/:id/preview', auth, async (req, res) => {
+  try {
+    const file = await File.findById(req.params.id);
+    
+    if (!file) {
+      return res.status(404).json({
+        success: false,
+        message: 'الملف غير موجود'
+      });
+    }
+    
+    // التحقق من صلاحية الوصول (نفس منطق التحميل)
+    if (file.course) {
+      const course = await Course.findById(file.course);
+      
+      if (!course) {
+        return res.status(404).json({
+          success: false,
+          message: 'المادة غير موجودة'
+        });
+      }
+      
+      if (req.user.role === 'professor' && course.professorId.toString() !== req.user.id) {
+        return res.status(403).json({
+          success: false,
+          message: 'ليس لديك صلاحية لمعاينة هذا الملف'
+        });
+      }
+    }
+    
+    // التحقق من وجود الملف
+    if (!await fs.pathExists(file.path)) {
+      return res.status(404).json({
+        success: false,
+        message: 'الملف غير موجود على السيرفر'
+      });
+    }
+    
+    // تحديد نوع المحتوى
+    const contentType = file.mimetype || 'application/octet-stream';
+    
+    // إرسال الملف
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(file.originalname)}"`);
+    
+    const fileStream = fs.createReadStream(file.path);
+    fileStream.pipe(res);
+    
+    fileStream.on('error', (err) => {
+      console.error('Error streaming file:', err);
+      if (!res.headersSent) {
+        res.status(500).json({
+          success: false,
+          message: 'خطأ في معاينة الملف'
+        });
+      }
+    });
+  } catch (error) {
+    console.error('Error previewing file:', error);
+    res.status(500).json({
+      success: false,
+      message: 'خطأ في معاينة الملف'
+    });
+  }
+});
+
+/**
+ * @route   PUT /api/files/:id
+ * @desc    تحديث معلومات ملف
+ * @access  Private/Professor,Admin,Root (مالك الملف أو أعلى)
+ */
+router.put('/:id', auth, permissions(['professor', 'admin', 'root']), async (req, res) => {
+  try {
+    const { type, category, description } = req.body;
+    const file = await File.findById(req.params.id);
+    
+    if (!file) {
+      return res.status(404).json({
+        success: false,
+        message: 'الملف غير موجود'
+      });
+    }
+    
+    // التحقق من صلاحية التعديل
+    if (req.user.role === 'professor') {
+      if (file.course) {
+        const course = await Course.findById(file.course);
+        
+        if (!course || course.professorId.toString() !== req.user.id) {
+          return res.status(403).json({
+            success: false,
+            message: 'ليس لديك صلاحية لتعديل هذا الملف'
+          });
+        }
+      } else if (file.uploadedBy.toString() !== req.user.id) {
+        return res.status(403).json({
+          success: false,
+          message: 'ليس لديك صلاحية لتعديل هذا الملف'
+        });
+      }
+    }
+    
+    // تحديث البيانات
+    const updates = {};
+    if (type) updates.type = type;
+    if (category) updates.category = category;
+    if (description !== undefined) updates.description = description;
+    
+    Object.assign(file, updates);
+    file.updatedAt = Date.now();
+    await file.save();
+    
+    res.json({
+      success: true,
+      message: 'تم تحديث معلومات الملف بنجاح',
+      data: {
+        id: file._id,
+        type: file.type,
+        category: file.category,
+        description: file.description,
+        updatedAt: file.updatedAt
+      }
+    });
+  } catch (error) {
+    console.error('Error updating file:', error);
+    res.status(500).json({
+      success: false,
+      message: 'خطأ في تحديث معلومات الملف'
+    });
+  }
+});
+
+/**
+ * @route   DELETE /api/files/:id
+ * @desc    حذف ملف
+ * @access  Private/Professor,Admin,Root (مالك الملف أو أعلى)
+ */
+router.delete('/:id', auth, permissions(['professor', 'admin', 'root']), async (req, res) => {
+  try {
+    const file = await File.findById(req.params.id);
+    
+    if (!file) {
+      return res.status(404).json({
+        success: false,
+        message: 'الملف غير موجود'
+      });
+    }
+    
+    // التحقق من صلاحية الحذف
+    if (req.user.role === 'professor') {
+      if (file.course) {
+        const course = await Course.findById(file.course);
+        
+        if (!course || course.professorId.toString() !== req.user.id) {
+          return res.status(403).json({
+            success: false,
+            message: 'ليس لديك صلاحية لحذف هذا الملف'
+          });
+        }
+      } else if (file.uploadedBy.toString() !== req.user.id) {
+        return res.status(403).json({
+          success: false,
+          message: 'ليس لديك صلاحية لحذف هذا الملف'
+        });
+      }
+    }
+    
+    // حذف الملف من نظام الملفات
+    if (await fs.pathExists(file.path)) {
+      await fs.remove(file.path);
+    }
+    
+    // حذف الملف من المادة إذا كان مرتبطاً بمادة
+    if (file.course) {
+      await Course.findByIdAndUpdate(file.course, {
+        $pull: { files: file._id }
+      });
+    }
+    
+    // تسجيل التنبيه الأمني
+    await SecurityAlert.create({
+      type: 'file_upload',
+      severity: 'medium',
+      title: 'حذف ملف',
+      description: `تم حذف الملف "${file.originalname}"`,
+      user: req.user.id,
+      ipAddress: req.ip,
+      userAgent: req.get('User-Agent'),
+      metadata: {
+        fileId: file._id,
+        fileName: file.originalname,
+        fileSize: file.size,
+        fileType: file.type,
+        courseId: file.course
+      }
+    });
+    
+    // حذف سجل الملف من قاعدة البيانات
+    await file.deleteOne();
+    
+    res.json({
+      success: true,
+      message: 'تم حذف الملف بنجاح'
+    });
+  } catch (error) {
+    console.error('Error deleting file:', error);
+    res.status(500).json({
+      success: false,
+      message: 'خطأ في حذف الملف'
+    });
+  }
+});
+
+/**
+ * @route   GET /api/files/course/:courseId
+ * @desc    الحصول على ملفات مادة دراسية
+ * @access  Private (حسب صلاحية المادة)
+ */
+router.get('/course/:courseId', auth, async (req, res) => {
+  try {
+    const { courseId } = req.params;
+    const { type, category, page = 1, limit = 20, sortBy = 'createdAt', sortOrder = 'desc' } = req.query;
+    
+    // التحقق من وجود المادة
+    const course = await Course.findById(courseId);
+    
+    if (!course) {
+      return res.status(404).json({
+        success: false,
+        message: 'المادة غير موجودة'
+      });
+    }
+    
+    // التحقق من صلاحية الوصول
+    if (req.user.role === 'professor' && course.professorId.toString() !== req.user.id) {
+      return res.status(403).json({
+        success: false,
+        message: 'ليس لديك صلاحية للوصول لهذه المادة'
+      });
+    }
+    
+    // بناء فلتر البحث
+    const filter = { course: courseId };
+    
+    if (type) {
+      filter.type = type;
+    }
+    
+    if (category) {
+      filter.category = category;
+    }
+    
+    // تحديد الترتيب
+    const sort = {};
+    sort[sortBy] = sortOrder === 'asc' ? 1 : -1;
+    
+    const options = {
+      page: parseInt(page),
+      limit: parseInt(limit),
+      sort,
+      populate: 'uploadedBy'
+    };
+    
+    const files = await File.paginate(filter, options);
+    
+    // تجميع الملفات حسب النوع والتصنيف
+    const byType = await File.aggregate([
+      { $match: { course: new mongoose.Types.ObjectId(courseId) } },
+      {
+        $group: {
+          _id: '$type',
+          count: { $sum: 1 },
+          totalSize: { $sum: '$size' }
+        }
+      }
+    ]);
+    
+    const byCategory = await File.aggregate([
+      { $match: { course: new mongoose.Types.ObjectId(courseId) } },
+      {
+        $group: {
+          _id: '$category',
+          count: { $sum: 1 }
+        }
+      },
+      { $sort: { count: -1 } }
+    ]);
+    
+    res.json({
+      success: true,
+      data: {
+        files: files.docs,
+        stats: {
+          total: files.totalDocs,
+          byType,
+          byCategory
+        },
+        pagination: {
+          total: files.totalDocs,
+          page: files.page,
+          pages: files.totalPages,
+          limit: files.limit
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Error getting course files:', error);
+    res.status(500).json({
+      success: false,
+      message: 'خطأ في جلب ملفات المادة'
+    });
+  }
+});
+
+/**
+ * @route   GET /api/files/stats
+ * @desc    الحصول على إحصائيات الملفات (للإدارة فقط)
+ * @access  Private/Admin,Root
+ */
+router.get('/stats/overview', auth, permissions(['admin', 'root']), async (req, res) => {
+  try {
+    const { startDate, endDate } = req.query;
+    
+    const matchStage = {};
+    
+    if (startDate || endDate) {
+      matchStage.createdAt = {};
+      if (startDate) matchStage.createdAt.$gte = new Date(startDate);
+      if (endDate) matchStage.createdAt.$lte = new Date(endDate);
+    }
+    
+    // إحصائيات عامة
+    const stats = await File.aggregate([
+      { $match: matchStage },
+      {
+        $group: {
+          _id: null,
+          totalFiles: { $sum: 1 },
+          totalSize: { $sum: '$size' },
+          totalDownloads: { $sum: '$downloadCount' },
+          courseFiles: { $sum: { $cond: [{ $ne: ['$course', null] }, 1, 0] } },
+          forumImages: { $sum: { $cond: [{ $eq: ['$type', 'forum_image'] }, 1, 0] } }
+        }
+      }
+    ]);
+    
+    // الملفات حسب النوع
+    const byType = await File.aggregate([
+      { $match: matchStage },
+      {
+        $group: {
+          _id: '$type',
+          count: { $sum: 1 },
+          totalSize: { $sum: '$size' },
+          avgSize: { $avg: '$size' }
+        }
+      },
+      { $sort: { count: -1 } }
+    ]);
+    
+    // الملفات حسب التخصص
+    const byDepartment = await File.aggregate([
+      { 
+        $match: { 
+          ...matchStage,
+          department: { $exists: true, $ne: null }
+        }
+      },
+      {
+        $group: {
+          _id: '$department',
+          count: { $sum: 1 },
+          totalSize: { $sum: '$size' }
+        }
+      },
+      { $sort: { count: -1 } }
+    ]);
+    
+    // الملفات الأكثر تحميلاً
+    const popularFiles = await File.find({
+      downloadCount: { $gt: 0 }
+    })
+    .sort({ downloadCount: -1 })
+    .limit(10)
+    .populate('course', 'name code')
+    .populate('uploadedBy', 'name')
+    .select('originalname type category downloadCount size course uploadedBy');
+    
+    const result = stats[0] || {
+      totalFiles: 0,
+      totalSize: 0,
+      totalDownloads: 0,
+      courseFiles: 0,
+      forumImages: 0
+    };
+    
+    // تنسيق الأحجام
+    const formatSize = (bytes) => {
+      const sizes = ['بايت', 'كيلوبايت', 'ميجابايت', 'جيجابايت'];
+      if (bytes === 0) return '0 بايت';
+      const i = parseInt(Math.floor(Math.log(bytes) / Math.log(1024)));
+      return Math.round(bytes / Math.pow(1024, i) * 100) / 100 + ' ' + sizes[i];
+    };
+    
+    res.json({
+      success: true,
+      data: {
+        ...result,
+        totalSizeFormatted: formatSize(result.totalSize),
+        byType,
+        byDepartment,
+        popularFiles
+      }
+    });
+  } catch (error) {
+    console.error('Error getting file stats:', error);
+    res.status(500).json({
+      success: false,
+      message: 'خطأ في جلب إحصائيات الملفات'
+    });
+  }
+});
+
+/**
+ * @route   POST /api/files/cleanup
+ * @desc    تنظيف الملفات المؤقتة واليتيمة (للإدارة فقط)
+ * @access  Private/Admin,Root
+ */
+router.post('/cleanup', auth, permissions(['admin', 'root']), async (req, res) => {
+  try {
+    const { dryRun = true } = req.body;
+    
+    // البحث عن الملفات اليتيمة (غير مرتبطة بأي مادة أو منشور)
+    const orphanedFiles = await File.find({
+      $or: [
+        { course: { $exists: false } },
+        { course: null }
+      ],
+      type: { $ne: 'forum_image' },
+      createdAt: { $lt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) } // أقدم من أسبوع
+    });
+    
+    let deletedCount = 0;
+    let deletedSize = 0;
+    const deletedFiles = [];
+    
+    if (!dryRun) {
+      for (const file of orphanedFiles) {
+        // حذف الملف من نظام الملفات
+        if (await fs.pathExists(file.path)) {
+          await fs.remove(file.path);
+        }
+        
+        deletedSize += file.size;
+        deletedFiles.push({
+          id: file._id,
+          name: file.originalname,
+          size: file.size
+        });
+        
+        // حذف سجل الملف
+        await file.deleteOne();
+        deletedCount++;
+      }
+    }
+    
+    res.json({
+      success: true,
+      message: dryRun 
+        ? `تم العثور على ${orphanedFiles.length} ملف يتيم للتنظيف` 
+        : `تم حذف ${deletedCount} ملف يتيم`,
+      data: {
+        dryRun,
+        found: orphanedFiles.length,
+        deleted: deletedCount,
+        freedSpace: deletedSize,
+        files: dryRun ? orphanedFiles.map(f => ({ id: f._id, name: f.originalname, size: f.size })) : deletedFiles
+      }
+    });
+  } catch (error) {
+    console.error('Error cleaning up files:', error);
+    res.status(500).json({
+      success: false,
+      message: 'خطأ في تنظيف الملفات'
+    });
+  }
+});
+
+/**
+ * @route   POST /api/files/download-multiple
+ * @desc    تحميل عدة ملفات كأرشيف مضغوط
+ * @access  Private
+ */
+router.post('/download-multiple', auth, async (req, res) => {
+  try {
+    const { fileIds } = req.body;
+    
+    if (!fileIds || !Array.isArray(fileIds) || fileIds.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'يرجى تحديد قائمة بمعرفات الملفات'
+      });
+    }
+    
+    if (fileIds.length > 50) {
+      return res.status(400).json({
+        success: false,
+        message: 'لا يمكن تحميل أكثر من 50 ملف في وقت واحد'
+      });
+    }
+    
+    // الحصول على معلومات الملفات
+    const files = await File.find({ _id: { $in: fileIds } });
+    
+    if (files.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'لم يتم العثور على أي من الملفات المحددة'
+      });
+    }
+    
+    // التحقق من صلاحية الوصول لكل ملف
+    for (const file of files) {
+      if (file.course) {
+        const course = await Course.findById(file.course);
+        
+        if (!course) {
+          return res.status(404).json({
+            success: false,
+            message: `المادة المرتبطة بالملف ${file.originalname} غير موجودة`
+          });
+        }
+        
+        if (req.user.role === 'professor' && course.professorId.toString() !== req.user.id) {
+          return res.status(403).json({
+            success: false,
+            message: `ليس لديك صلاحية لتحميل الملف ${file.originalname}`
+          });
+        }
+      }
+    }
+    
+    // زيادة عداد التنزيلات لكل ملف
+    for (const file of files) {
+      file.downloadCount += 1;
+      file.lastDownloadedAt = Date.now();
+      await file.save();
+    }
+    
+    res.json({
+      success: true,
+      message: 'سيبدأ تحميل الأرشيف قريباً',
+      data: {
+        totalFiles: files.length,
+        totalSize: files.reduce((sum, file) => sum + file.size, 0),
+        files: files.map(file => ({
+          id: file._id,
+          name: file.originalname,
+          size: file.size
+        }))
+      }
+    });
+    
+    // ملاحظة: إنشاء الأرشيف المضغوط يتطلب مكتبة إضافية مثل archiver
+    // سيتم تنفيذ ذلك في الخدمة الخلفية
+    
+  } catch (error) {
+    console.error('Error preparing multiple files download:', error);
+    res.status(500).json({
+      success: false,
+      message: 'خطأ في تحضير الأرشيف'
+    });
+  }
+});
+
+/**
+ * @route   GET /api/files/search
+ * @desc    البحث في الملفات
+ * @access  Private
+ */
+router.get('/search/global', auth, async (req, res) => {
+  try {
+    const { q, type, department, page = 1, limit = 20 } = req.query;
+    
+    if (!q || q.length < 2) {
+      return res.status(400).json({
+        success: false,
+        message: 'يرجى إدخال كلمة بحث مكونة من حرفين على الأقل'
+      });
+    }
+    
+    // بناء فلتر البحث
+    const filter = {
+      $or: [
+        { originalname: { $regex: q, $options: 'i' } },
+        { description: { $regex: q, $options: 'i' } }
+      ]
+    };
+    
+    if (type) {
+      filter.type = type;
+    }
+    
+    if (department) {
+      filter.department = department;
+    }
+    
+    // استبعاد الملفات غير المسموح بالوصول إليها
+    if (req.user.role === 'student' || req.user.role === 'guest') {
+      filter.$or = [
+        { isPublic: true },
+        { department: req.user.department }
+      ];
+    }
+    
+    const options = {
+      page: parseInt(page),
+      limit: parseInt(limit),
+      sort: { createdAt: -1 },
+      populate: [
+        { path: 'course', select: 'name code department' },
+        { path: 'uploadedBy', select: 'name role' }
+      ]
+    };
+    
+    const files = await File.paginate(filter, options);
+    
+    res.json({
+      success: true,
+      data: files.docs,
+      pagination: {
+        total: files.totalDocs,
+        page: files.page,
+        pages: files.totalPages,
+        limit: files.limit
+      }
+    });
+  } catch (error) {
+    console.error('Error searching files:', error);
+    res.status(500).json({
+      success: false,
+      message: 'خطأ في البحث'
+    });
+  }
+});
+
+module.exports = router;
