@@ -1,0 +1,43 @@
+
+
+# تشغيل الخدمة
+sudo systemctl start mongod
+
+# تمكين التشغيل التلقائي عند الإقلاع
+sudo systemctl enable mongod
+
+# التحقق من حالة الخدمة
+sudo systemctl status mongod
+
+
+
+
+
+
+
+
+sudo npm install -g pm2 --registry=https://registry.npmmirror.com
+
+
+
+
+
+#خطوات تريبل شوت
+
+
+# 1. تحقق من تشغيل الخدمات
+sudo systemctl status mongodb
+pm2 status
+
+# 2. تحقق من المنافذ
+sudo netstat -tulpn | grep :9000
+
+# 3. شاهد السجلات
+pm2 logs engineering-library-api
+tail -f /var/log/mongodb/mongod.log
+
+# 4. اختبار الاتصال
+curl -v http://localhost:9000/api/health
+
+# 5. إعادة التشغيل
+pm2 restart engineering-library-api
