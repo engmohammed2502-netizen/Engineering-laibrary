@@ -21,6 +21,7 @@ if [ -d "engineering-library" ]; then
     git pull origin main
 else
     echo "📂 استنساخ المشروع من GitHub..."
+    # ملاحظة: تم ترك الرابط والاسم كما هما حسب طلبك
     git clone http://github.com/engmohammed2502-netizen/engineering-laibrary.git
     cd engineering-library
 fi
@@ -71,26 +72,33 @@ npm run build
 
 # 7. تشغيل MongoDB
 echo "🗄️ تشغيل قاعدة البيانات..."
-sudo systemctl start mongodb
-sudo systemctl enable mongodb
+# تم التعديل هنا: اسم الخدمة الصحيح هو mongod
+sudo systemctl start mongod
+sudo systemctl enable mongod
 
 # انتظار تشغيل MongoDB
 sleep 3
 
 # 8. إنشاء قاعدة البيانات والمستخدم
 echo "🔧 إعداد قاعدة البيانات..."
-mongo --eval "
-db = db.getSiblingDB('engineering_library');
-db.createUser({
-  user: 'engineering',
-  pwd: 'library123',
-  roles: [{ role: 'readWrite', db: 'engineering_library' }]
-});
+# تم التعديل هنا: الأمر الصحيح هو mongosh
+mongosh --eval "
+use engineering_library;
+try {
+    db.createUser({
+      user: 'engineering',
+      pwd: 'library123',
+      roles: [{ role: 'readWrite', db: 'engineering_library' }]
+    });
+    print('✅ تم إنشاء المستخدم');
+} catch (e) {
+    print('⚠️ المستخدم موجود مسبقاً');
+}
 db.createCollection('users');
 db.createCollection('courses');
 db.createCollection('files');
 db.createCollection('forums');
-print('✅ تم إنشاء قاعدة البيانات');
+print('✅ تم إنشاء الجداول');
 " || echo "⚠️ قاعدة البيانات موجودة مسبقاً"
 
 # 9. تشغيل Backend مع PM2
@@ -109,7 +117,8 @@ pm2 save
 # 10. فتح المنفذ في الجدار الناري
 echo "🔥 إعداد الجدار الناري..."
 sudo ufw allow 9000/tcp comment "Engineering Library" || true
-sudo ufw --force enable || true
+# تم تعطيل force enable لكي لا يقطع اتصالك الحالي
+# sudo ufw --force enable || true
 
 # 11. إعداد cron job للنسخ الاحتياطي
 echo "💾 إعداد النسخ الاحتياطي التلقائي..."
@@ -126,7 +135,8 @@ if curl -s http://localhost:9000/api/health > /dev/null; then
     echo "✅ Backend يعمل بنجاح"
 else
     echo "❌ Backend لا يعمل. تحقق من السجلات: pm2 logs engineering-library-api"
-    pm2 logs engineering-library-api --lines 20
+    # تم إضافة --lines 20 لرؤية السجلات القديمة
+    pm2 logs engineering-library-api --lines 20 --nostream
 fi
 
 # 13. عرض معلومات الوصول
