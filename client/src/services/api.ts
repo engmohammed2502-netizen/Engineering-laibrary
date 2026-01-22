@@ -2,7 +2,12 @@ import axios, { AxiosInstance, AxiosRequestConfig, AxiosResponse, InternalAxiosR
 import { authService } from './auth.service';
 
 // تكوين API الأساسي
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
+
+
+// استخدام IP الويندوز مع البورت 9000
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://192.168.111.129:9000/api';
+
+// باقي الكود يبقى كما هو...
 
 // إنشاء نسخة axios مخصصة
 const api: AxiosInstance = axios.create({
