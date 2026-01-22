@@ -22,6 +22,30 @@ pm2 logs engineering-library-api --lines 50
 
 
 
+cat <<EOF > index.js
+const auth = require('./auth');
+const permissions = require('./permissions');
+const security = require('./security');
+const upload = require('./upload');
+
+module.exports = {
+  auth,
+  permissions,
+  security,
+  upload
+};
+EOF
+
+
+
+
+
+
+
+
+
+
+
 
 
 # أولاً: أوقف MongoDB إذا كان يعمل
