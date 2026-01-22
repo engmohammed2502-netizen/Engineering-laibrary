@@ -21,8 +21,6 @@ pm2 logs engineering-library-api --lines 50
 
 
 
-
-cat <<EOF > index.js
 const auth = require('./auth');
 const permissions = require('./permissions');
 const security = require('./security');
@@ -34,7 +32,8 @@ module.exports = {
   security,
   upload
 };
-EOF
+
+
 
 
 
